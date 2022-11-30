@@ -1,0 +1,72 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel DDA
+#include "Extra.hlsl"
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+float anchors_x[ANCHOR_COUNT];
+float anchors_y[ANCHOR_COUNT];
+Texture2D<float> Input;
+uint InputSize;
+uint ClassSize;
+float MinScore;
+
+RWStructuredBuffer<DetectedObject> Output;
+RWStructuredBuffer<uint>OutputSize;
+
+float Sigmoid(float x)
+{
+    return 1/(1+exp(-x));
+}
+
+[numthreads(8,8,1)]
+void DDA (uint2 id : SV_DispatchThreadID)
+{
+   ///last is now first
+   uint width = (InputSize - 1 - id.y)* InputSize +(InputSize - 1 - id.x);
+   for ( uint i = 0; i < ANCHOR_COUNT ; i++)
+   {
+       
+      //anchor data position
+      uint height = i *(5+ClassSize);
+      float x = Input[uint2(height+0,width)];
+      float y = Input[uint2(height+1,width)];
+      float w = Input[uint2(height+2,width)];
+      float h = Input[uint2(height+3,width)];
+      float c = Input[uint2(height+4,width)];
+
+      uint ClassLast = 0;
+      float maxscore= 0;
+      float scoredsummed=0;
+      for(uint j = 0 ; j < ClassSize ; j++)
+      {
+        float score = exp(Input[uint2(height+5+j,width)]);
+        if(score>maxscore)
+        {
+            ClassLast=j;
+            maxscore=score;
+        }
+          scoredsummed+=score;
+      }
+
+       DetectedObject object;
+       object.score= (1 / (1 + exp(-c)))*maxscore/scoredsummed;
+       if(object.score>MinScore)
+       {
+        object.x = (id.x + (1 / (1 + exp(-x))))/InputSize;
+        object.y = (id.y + (1 / (1 + exp(-y))))/InputSize;
+        object.w = exp(w)*anchors_x[i];
+        object.h = exp(h)*anchors_y[i];
+        object.classIndex = ClassLast;
+        
+        uint count = OutputSize.IncrementCounter();
+        if(count<MAX_DETECTION) Output[count]=object;
+           
+       }
+
+       
+   }
+
+   
+    
+}

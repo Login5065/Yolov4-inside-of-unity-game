@@ -1,0 +1,72 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel RemoveOverlapping
+#include "Extra.hlsl"
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+
+StructuredBuffer<DetectedObject> Input;
+RWStructuredBuffer<uint>InputCount;
+float limit;
+AppendStructuredBuffer<DetectedObject>Output;
+
+groupshared DetectedObject _entries[MAX_DETECTION];
+groupshared bool _flags[MAX_DETECTION];
+
+float CalculateIOU(in DetectedObject d1, in DetectedObject d2)
+{
+    float x0 = max(d1.x - d1.w / 2, d2.x - d2.w / 2);
+    float x1 = min(d1.x + d1.w / 2, d2.x + d2.w / 2);
+    float y0 = max(d1.y - d1.h / 2, d2.y - d2.h / 2);
+    float y1 = min(d1.y + d1.h / 2, d2.y + d2.h / 2);
+
+    float area0 = d1.w * d1.h;
+    float area1 = d2.w * d2.h;
+    float areaInner = max(0, x1 - x0) * max(0, y1 - y0);
+
+    return areaInner / (area0 + area1 - areaInner);
+}
+
+[numthreads(1,1,1)]
+void RemoveOverlapping (uint3 id : SV_DispatchThreadID)
+{
+    uint entry_count = min(MAX_DETECTION, InputCount.IncrementCounter());
+    if (entry_count == 0) return;
+
+    for (uint i = 0; i < entry_count; i++)
+    {
+        _entries[i] = Input[i];
+        _flags[i] = true;
+    }
+
+    // Overlap test permutation
+    for (uint i = 0; i < entry_count - 1; i++)
+    {
+        if (!_flags[i]) continue;
+
+        for (uint j = i + 1; j < entry_count; j++)
+        {
+            if (!_flags[j]) continue;
+
+            // Overlap test
+            if (CalculateIOU(_entries[i], _entries[j]) < limit)
+                continue;
+
+            // Score comparison
+            if (_entries[i].score < _entries[j].score)
+            {
+                _flags[i] = false;
+                // The detection in the outer loop is removed.
+                // Break the inner loop.
+                break;
+            }
+            else
+                _flags[j] = false;
+        }
+    }
+
+    // Output aggregation
+    for (uint j = 0; j < entry_count; j++)
+        if (_flags[j]) Output.Append(_entries[j]);
+
+    
+}

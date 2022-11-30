@@ -1,0 +1,19 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel Reshape
+
+sampler2D Image;
+RWStructuredBuffer<float> RestructuredImage;
+uint Size;
+
+[numthreads(8,8,1)]
+void Reshape (uint2 id : SV_DispatchThreadID)
+{
+    float2 uv = float2(0.5+id.x, Size -0.5-id.y)/Size;
+    float dx = float2(1.0/Size,0);
+    float dy = float2(0,-1.0/Size);
+    float3 rgb = tex2Dgrad(Image,uv,dx,dy).rgb;
+    uint x = (id.y*Size+id.x)*3;
+    RestructuredImage[x+0]=rgb.r;
+    RestructuredImage[x+1]=rgb.g;
+    RestructuredImage[x+2]=rgb.b;
+}
